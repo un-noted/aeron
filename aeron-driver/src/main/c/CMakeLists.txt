@@ -330,17 +330,17 @@ add_library(aeron_driver SHARED ${SOURCE} ${HEADERS})
 target_include_directories(aeron_driver
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${AERON_C_CLIENT_SOURCE_PATH})
 
-add_library(aeron_driver_static STATIC ${SOURCE} ${HEADERS})
-target_include_directories(aeron_driver_static
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${AERON_C_CLIENT_SOURCE_PATH})
+# add_library(aeron_driver_static STATIC ${SOURCE} ${HEADERS})
+#target_include_directories(aeron_driver_static
+#  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${AERON_C_CLIENT_SOURCE_PATH})
 
 add_executable(aeronmd aeronmd.c)
 target_include_directories(aeronmd
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${AERON_C_CLIENT_SOURCE_PATH})
 
-add_executable(aeronmd_s aeronmd.c)
-target_include_directories(aeronmd_s
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${AERON_C_CLIENT_SOURCE_PATH})
+# add_executable(aeronmd_s aeronmd.c)
+# target_include_directories(aeronmd_s
+# PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${AERON_C_CLIENT_SOURCE_PATH})
 
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -DDISABLE_BOUNDS_CHECKS")
 
@@ -366,6 +366,16 @@ if (CYGWIN)
     endif ()
 endif ()
 
+find_package(PkgConfig)
+## use pkg-config to get hints for 0mq locations
+pkg_check_modules(PC_ZeroMQ QUIET zmq)
+
+## use the hint from above to find the location of libzmq
+find_library(ZeroMQ_LIBRARY
+        NAMES zmq
+        PATHS ${PC_ZeroMQ_LIBRARY_DIRS}
+        )
+
 target_link_libraries(
     aeron_driver
     ${CMAKE_DL_LIBS}
@@ -374,7 +384,10 @@ target_link_libraries(
     ${AERON_LIB_M_LIBS}
     ${AERON_LIB_ATOMIC_LIBS}
     ${CMAKE_THREAD_LIBS_INIT}
-    ${AERON_LIB_WINSOCK_LIBS})
+    ${AERON_LIB_WINSOCK_LIBS}
+    ${ZeroMQ_LIBRARY}
+    # Requires C++ std lib due to new ZMQ dependencies.
+    stdc++)
 
 target_link_libraries(
     aeronmd
@@ -385,28 +398,33 @@ target_link_libraries(
     ${AERON_LIB_M_LIBS}
     ${AERON_LIB_ATOMIC_LIBS}
     ${CMAKE_THREAD_LIBS_INIT}
-    ${AERON_LIB_WINSOCK_LIBS})
+    ${AERON_LIB_WINSOCK_LIBS}
+    ${ZeroMQ_LIBRARY}
+    stdc++)
 
-target_link_libraries(
-    aeronmd_s
-    aeron_driver_static
-    ${CMAKE_DL_LIBS}
-    ${AERON_LIB_BSD_LIBS}
-    ${AERON_LIB_UUID_LIBS}
-    ${AERON_LIB_M_LIBS}
-    ${AERON_LIB_ATOMIC_LIBS}
-    ${CMAKE_THREAD_LIBS_INIT}
-    ${AERON_LIB_WINSOCK_LIBS})
+# target_link_libraries(
+#  aeronmd_s
+#  aeron_driver_static
+#    ${CMAKE_DL_LIBS}
+#    ${AERON_LIB_BSD_LIBS}
+#    ${AERON_LIB_UUID_LIBS}
+#    ${AERON_LIB_M_LIBS}
+#    ${AERON_LIB_ATOMIC_LIBS}
+#    ${CMAKE_THREAD_LIBS_INIT}
+#    ${AERON_LIB_WINSOCK_LIBS}
+#    ${ZeroMQ_LIBRARY})
 
 target_compile_definitions(aeron_driver PRIVATE -DAERON_DRIVER)
-target_compile_definitions(aeron_driver_static PRIVATE -DAERON_DRIVER)
+# target_compile_definitions(aeron_driver_static PRIVATE -DAERON_DRIVER)
 
 if (AERON_INSTALL_TARGETS)
     install(
-        TARGETS aeron_driver aeron_driver_static
+        TARGETS aeron_driver
+        # TARGETS aeron_driver aeron_driver_static
         RUNTIME DESTINATION lib
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib)
-    install(TARGETS aeronmd aeronmd_s DESTINATION bin)
+    install(TARGETS aeronmd DESTINATION bin)
+    # install(TARGETS aeronmd aeronmd_s DESTINATION bin)
     install(DIRECTORY . DESTINATION include/aeronmd FILES_MATCHING PATTERN "*.h")
 endif ()
