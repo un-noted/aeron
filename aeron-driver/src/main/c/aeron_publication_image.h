@@ -164,7 +164,7 @@ void aeron_publication_image_clean_buffer_to(aeron_publication_image_t *image, i
 
 void aeron_publication_image_on_gap_detected(void *clientd, int32_t term_id, int32_t term_offset, size_t length);
 
-bool aeron_publication_image_track_rebuild(aeron_publication_image_t *image, int64_t now_ns);
+void aeron_publication_image_track_rebuild(aeron_publication_image_t *image, int64_t now_ns);
 
 int aeron_publication_image_insert_packet(
     aeron_publication_image_t *image,

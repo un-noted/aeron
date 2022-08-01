@@ -31,7 +31,6 @@
 
 #include "util/aeron_math.h"
 #include "util/aeron_arrayutil.h"
-#include "aeron_alloc.h"
 #include "aeron_driver_conductor.h"
 #include "aeron_position.h"
 #include "aeron_driver_sender.h"
@@ -39,7 +38,6 @@
 #include "collections/aeron_bit_set.h"
 #include "uri/aeron_uri.h"
 #include "util/aeron_parse_util.h"
-#include <zmq.h>
 
 
 #define STATIC_BIT_SET_U64_LEN (512u)
@@ -447,13 +445,6 @@ int aeron_driver_conductor_init(aeron_driver_conductor_t *conductor, aeron_drive
         return -1;
     }
 
-    if (aeron_int64_to_ptr_hash_map_init(
-        &conductor->stream_id_notify_map, 16, AERON_MAP_DEFAULT_LOAD_FACTOR) < 0)
-    {
-        return -1;
-    }
-
-
     if (aeron_loss_reporter_init(&conductor->loss_reporter, context->loss_report.addr, context->loss_report.length) < 0)
     {
         return -1;
@@ -657,14 +648,6 @@ int aeron_driver_conductor_init(aeron_driver_conductor_t *conductor, aeron_drive
     context->conductor_duty_cycle_tracker->update(context->conductor_duty_cycle_tracker->state, now_ns);
 
     conductor->context = context;
-
-    // Create ZMQ notification socket.
-    void *ctx = zmq_ctx_new ();
-    conductor->notify_socket = zmq_socket (ctx, ZMQ_PUB);
-    char buf[1024];
-    snprintf(buf, sizeof(buf), "ipc:///tmp/aeron-notify");
-    int rc = zmq_bind(conductor->notify_socket, buf);
-    assert (rc == 0);
 
     return 0;
 }
@@ -2838,27 +2821,7 @@ int aeron_driver_conductor_do_work(void *clientd)
 
     for (size_t i = 0, length = conductor->publication_images.length; i < length; i++)
     {
-        aeron_publication_image_t* image = conductor->publication_images.array[i].image;
-        // If rcv-pos increased (new completed data), mark this stream as updated.
-        // Different publication images could be subscribed to the same stream, but usually they will be updated at the
-        // same time here, which means that duplicate notifications generally don't occur.
-        if (aeron_publication_image_track_rebuild(image, now_ns)) {
-            notify_data_t* notify = aeron_int64_to_ptr_hash_map_get(&conductor->stream_id_notify_map, (int64_t)image->stream_id);
-            notify->updated = true;
-        }
-    }
-
-    // Send ZMQ notification for any streams that have been updated.
-    for (size_t i = 0; i < conductor->stream_id_notify_map.capacity; i++) {
-        notify_data_t* notify = conductor->stream_id_notify_map.values[i];
-        if (notify != NULL && notify->updated) {
-            // For debug..
-            // int64_t stream_id = conductor->stream_id_notify_map.keys[i];
-            // printf("%d\n", stream_id);
-
-             zmq_send(conductor->notify_socket, notify->message, strlen(notify->message), 0);
-            notify->updated = false;
-        }
+        aeron_publication_image_track_rebuild(conductor->publication_images.array[i].image, now_ns);
     }
 
     return work_count;
@@ -2935,7 +2898,6 @@ void aeron_driver_conductor_on_close(void *clientd)
 
     aeron_str_to_ptr_hash_map_delete(&conductor->send_channel_endpoint_by_channel_map);
     aeron_str_to_ptr_hash_map_delete(&conductor->receive_channel_endpoint_by_channel_map);
-    aeron_int64_to_ptr_hash_map_delete(&conductor->stream_id_notify_map);
     aeron_mpsc_rb_consumer_heartbeat_time(&conductor->to_driver_commands, AERON_NULL_VALUE);
 }
 
@@ -4540,18 +4502,6 @@ void aeron_driver_conductor_on_create_publication_image(void *clientd, void *ite
         endpoint->conductor_fields.udp_channel->is_multicast : AERON_FORCE_TRUE == group_subscription;
     bool is_oldest_subscription_sparse = aeron_driver_conductor_is_oldest_subscription_sparse(
         conductor, endpoint, command->stream_id, command->session_id, registration_id);
-
-    // Handle new stream for notification.
-    notify_data_t* notify = aeron_int64_to_ptr_hash_map_get(&conductor->stream_id_notify_map, (int64_t)command->stream_id);
-    if (NULL == notify) {
-        notify = malloc(sizeof(notify_data_t));
-        notify->updated = false;
-        // The notify message is hardcoded to the stream_id (as a string).
-        snprintf(notify->message, sizeof(notify->message), "%d", command->stream_id);
-        printf("New stream: %d\n", command->stream_id);
-
-        aeron_int64_to_ptr_hash_map_put(&conductor->stream_id_notify_map, (int64_t)command->stream_id, notify);
-    }
 
     aeron_publication_image_t *image = NULL;
     if (aeron_publication_image_create(

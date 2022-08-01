@@ -343,7 +343,7 @@ void aeron_publication_image_on_gap_detected(void *clientd, int32_t term_id, int
     }
 }
 
-bool aeron_publication_image_track_rebuild(aeron_publication_image_t *image, int64_t now_ns)
+void aeron_publication_image_track_rebuild(aeron_publication_image_t *image, int64_t now_ns)
 {
     size_t subscriber_count = aeron_publication_image_subscriber_count(image);
     if (subscriber_count > 0)
@@ -384,9 +384,7 @@ bool aeron_publication_image_track_rebuild(aeron_publication_image_t *image, int
         const int32_t rebuild_term_offset = (int32_t)(rebuild_position & image->term_length_mask);
         const int64_t new_rebuild_position = (rebuild_position - rebuild_term_offset) + rebuild_offset;
 
-        // This is the rcv-pos increased counter, which is essentially the signal that new data can be polled.
-        // See: https://aeroncookbook.com/aeron/aeron-understanding-position/
-        bool updated = aeron_counter_propose_max_ordered(image->rcv_pos_position.value_addr, new_rebuild_position);
+        aeron_counter_propose_max_ordered(image->rcv_pos_position.value_addr, new_rebuild_position);
 
         bool should_force_send_sm = false;
         const int32_t window_length = image->congestion_control->on_track_rebuild(
@@ -409,9 +407,7 @@ bool aeron_publication_image_track_rebuild(aeron_publication_image_t *image, int
             aeron_publication_image_clean_buffer_to(image, min_sub_pos - image->term_length);
             aeron_publication_image_schedule_status_message(image, min_sub_pos, window_length);
         }
-        return updated;
     }
-    return false;
 }
 
 static inline void aeron_publication_image_track_connection(
